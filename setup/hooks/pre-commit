@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# This is the pre-commit git hook that will be run 
+# prior to a commit. Exiting nonzero will prevent a commit. 
+# This is used to run linting, tests, code coverage analysis,
+# and generate documentation.
+
+
+# Linting and static project syntax check
+sh scripts/lint.sh
+
+# If previous script fails, prevent the commit
+if [$? != 0] ; then
+    exit 1
+fi
+
+# Tests
+sh scripts/test_check.sh > debug/test_fail_fast.txt
+
+# If tests fail, prevent the commit
+if [$? != 0] ; then
+    exit 1
+fi
