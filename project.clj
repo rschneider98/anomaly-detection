@@ -5,7 +5,8 @@
             :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.10.1"]
                  [aysylu/loom "1.0.2"]
-                 [ubergraph "0.8.1"]]
+                 [ubergraph "0.8.1"]
+                 [bigml/sketchy "0.4.2"]]
   :main ^:skip-aot anomaly-detection.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all
