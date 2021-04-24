@@ -60,7 +60,7 @@
   "Takes parameters for width and length and returns a min-count sketch data structure
    (rows columns)"
   [n d]
-  )
+  (n d))
 
 
 (defn add-link
