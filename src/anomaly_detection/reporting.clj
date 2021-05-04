@@ -1,7 +1,11 @@
-(ns reporting
+(ns anomaly-detection.reporting
   "Functions to store out metric calculations and records"
   (:gen-class)
-  (:require [ubergraph.core :as uber]))
+  (:require [clojure.string :as str]
+            [org.clojure/data.json "2.2.2"]))
 
-;; ToDo: Handle persistent storage of metric calculations
-;; by creating local graph database to store metrics
+(defn report
+  "Output concerns to a file, takes collection of maps and filename, saves as CSV
+   (report concerns filename)"
+  [flagged filename]
+  (spit (str/join ["reporting/", filename]) (json/write-str flagged)))
