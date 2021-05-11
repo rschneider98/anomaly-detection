@@ -2,8 +2,8 @@
   "Contains all of the internal algorithms needed to manage detection algorithms"
   (:gen-class)
   (:require [ubergraph.core :as uber]
-    (bigml.sketchy [count-min :as count-min])
-    [clojure.math.numeric-tower :as math]))
+    (bigml.sketchy [murmur :as murmur]
+                   [count-min :as count-min])))
 
 (defn pagerank_queued
   "Iterative PageRank, calculates rank for node on graph and updates queue
@@ -55,7 +55,7 @@
 
 (defn- hash-offsets 
   "From Sketchy library - copied here since, not public"
-  [val hashers hash-bits]
+  [value hashers hash-bits]
   (let [offset (bit-shift-left 1 hash-bits)
         doffset (unchecked-dec offset)]
     (loop [i 0
@@ -63,69 +63,68 @@
       (if (= i hashers)
         offsets
         (recur (inc i)
-               (conj offsets (+ (bit-and (murmur/hash val i) doffset)
+               (conj offsets (+ (bit-and (murmur/hash value i) doffset)
                                 (* offset i))))))))
 
-(defn- weighted-insert 
+(defn weighted-insert 
   "Modified from Sketchy library to allow for weighted inserts"
-  [sketch val weight]
+  [sketch value weight]
   (let [{:keys [hashers hash-bits counters inserts]} sketch]
     (assoc sketch
       :inserts (inc inserts)
       :counters (reduce #(assoc %1 %2 (+ weight (%1 %2)))
                         counters
-                        (hash-offsets val hashers hash-bits)))))
+                        (hash-offsets value hashers hash-bits)))))
 
 (defn count-min-dampen 
   "Reduce the counts in the count-min sketch data structure. Used for weighted averages of struct
    (count-min-dampen count-min) will return modified count-min with factor=0.85
    (count-min-dampen count-min factor) will return modified count-min"
   ;; Count-min stores counters in vector of a map, modify this vector and remake map
-  [cm]
-  (count-min-dampen cm 0.85)
-  [cm factor]
-  (assoc cm :counters (map (fn [x] (* factor x)) (:counters cm))))
+  ([cm]
+   (count-min-dampen cm 0.85))
+  ([cm factor]
+   (assoc cm :counters (map (fn [x] (* factor x)) (:counters cm)))))
 
-(defn count-edge
-  "Given count-min structure and edge map, add into the struct and queue of 
-   time-based seen objects
-   (count-edge count-min edge-map)"
-   [cm edge]
-   (count-min/insert cm edge))
-
-(defn count-node
-  "Given a count-min structure and node id, add into the struct and queue of
-   time-based seen objects
-   (count-node count-min node-id)"
-   [cm node]
-   (count-min/insert cm node))
-
-(defn test
+(defn psi-test
   "Given a count-min structure, value to check, and return metric in map
    (test previous-count-min count-min value) returns map"
   [prev-cm cm value]
   (let [expected (count-min/estimate-count prev-cm value)
         observed (count-min/estimate-count cm value)
-        metric (/ (math/expt (- observed expected) 2) expected)
+        metric (* (/ (- observed expected) (+ observed expected))
+                 (Math/log (/ observed (max 1 expected))))]
+    (assoc {}
+           :item value
+           :metric metric)))
+
+(defn t-test
+  "Given a count-min structure, value to check, and return metric in map
+   (test previous-count-min count-min value) returns map"
+  [prev-cm cm value]
+  (let [expected (count-min/estimate-count prev-cm value)
+        observed (count-min/estimate-count cm value)
+        metric (/ (Math/pow (- observed expected) 2) (max 1 expected))]
         (assoc {} 
                :item value 
-               :concern metric)]))
+               :metric metric)))
 
 (defn concern?
   "Given a map of the metric and value, return if it is a flag
    (concern? metric value) threshold = 0.05
    (concern? metric value threshold) returns boolean"
-  [value]
-  (concern? prev-cm cm value 0.05)
-  [value threshold]
-  (> (:metric value) threshold))
+  ([value]
+   (concern? value 0.05))
+  ([value threshold]
+   (> (:metric value) threshold)))
 
 (defn get-concerns
   "Given a previous count-min sketch, current one, and a collection of insertions, 
    return a report as a map with the collection that is to be reported, the threshold value"
-   [prev-cm cm values]
-   (get-concerns prev-cm cm values 0.05)
-   [prev-cm cm values threshold]
-   (-> values
-       (map (fn [x] (test prev-cm cm x threshold)))
-       (filter concern?)))
+   ([prev-cm cm values]
+    (get-concerns prev-cm cm values 0.05))
+   ([prev-cm cm values threshold]
+    (->> values
+         (map (fn [x] (psi-test prev-cm cm x)))
+         (filter concern?)
+         (set))))

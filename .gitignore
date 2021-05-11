@@ -9,8 +9,11 @@ pom.xml.asc
 /.lein-*
 /.nrepl-port
 /.prepl-port
+/.nrepl.edn
 .hgignore
 .hg/
 debug/*
 .vscode/*
 data/*
+.eastwood
+out/

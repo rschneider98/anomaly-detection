@@ -57,9 +57,9 @@
 (defn add-edge
   "Given an edge map, add the edge to the database
    (add-edge db-session edge-map)"
-  [session edge-map relation]
+  [session edge-map]
   (with-open [session]
-    ((case relation
+    ((case (:relation edge-map)
       "TRANSFER" create-transfer
       "DEBIT" create-debit
       "CASH-IN" create-cash-in

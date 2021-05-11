@@ -14,7 +14,7 @@ mkdir -p debug
 # ensure project can compile
 lein check > debug/syntax_check.txt
 
-if [$? != 0] ; then
+if [$? -ne 0] ; then
     echo "Compiling: Leiningen syntax check found errors"
     exit 1
 fi
@@ -24,7 +24,7 @@ fi
 lein eastwood > debug/lint_eastwood.txt
 
 # if eastwood created output/warnings, there is a non-zero exit code
-if [$? != 0] ; then
+if [$? -ne 0] ; then
     echo "Linting: Eastwood produced warnings"
     exit 1
 fi
