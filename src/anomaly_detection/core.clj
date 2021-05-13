@@ -9,6 +9,8 @@
             ;;[anomaly-detection.queries :as queries]
             [anomaly-detection.reporting :as reporting]))
   
+(def log-filename "./out/log.csv")
+
 ;; Time Management
 (def time-interval 1)
 (def time-period (atom 1))
@@ -38,15 +40,10 @@
 (def prev-cm-payment-node (atom (count-min/create :hash-bits num-hash-bits)))
 
 (def seen-transfer-edge (atom #{}))
-(def seen-transfer-node (atom #{}))
 (def seen-debit-edge (atom #{}))
-(def seen-debit-node (atom #{}))
 (def seen-cash-in-edge (atom #{}))
-(def seen-cash-in-node (atom #{}))
 (def seen-cash-out-edge (atom #{}))
-(def seen-cash-out-node (atom #{}))
 (def seen-payment-edge (atom #{}))
-(def seen-payment-node (atom #{}))
 
 (def prev-cm-list [prev-cm-transfer-edge prev-cm-transfer-node prev-cm-debit-edge
                    prev-cm-debit-node prev-cm-cash-in-edge prev-cm-cash-in-node
@@ -57,51 +54,47 @@
               cm-cash-in-edge cm-cash-in-node cm-cash-out-edge cm-cash-out-node
               cm-payment-edge cm-payment-node])
 
-(def seen-list [seen-transfer-edge seen-transfer-node seen-debit-edge seen-debit-node
-                seen-cash-in-edge seen-cash-in-node seen-cash-out-edge seen-cash-out-node
-                seen-payment-edge seen-payment-node])
+(def seen-list [seen-transfer-edge seen-debit-edge seen-cash-in-edge
+                seen-cash-out-edge seen-payment-edge])
 
 (defn update-counters
-  [cm-edges cm-nodes seen-edges seen-nodes edge-map]
+  [cm-edges cm-nodes seen-edges edge-map]
   (let [first-node (:idFrom edge-map)
         second-node (:idTo edge-map)
         weight (:weight edge-map)]
-    (swap! cm-edges alg/weighted-insert edge-map weight)
+    (swap! cm-edges alg/weighted-insert (alg/limit-edge edge-map) weight)
     (swap! cm-nodes alg/weighted-insert first-node weight)
     (swap! cm-nodes alg/weighted-insert second-node weight)
-    (swap! seen-edges conj edge-map)
-    (swap! seen-nodes conj first-node second-node)))
+    (swap! seen-edges conj edge-map)))
 
+(defn flush-concerns  
+  []
+  (let [flush-lists (doall (for [i (range (count seen-list))] (first (swap-vals! (nth seen-list i) empty))))
+        concerns-set (do (apply set/union (doall (for [i (map (fn [x] (* 2 x)) (range (/ (count cm-list) 2)))]
+                                                   (alg/get-concerns
+                                                    @(nth prev-cm-list i)
+                                                    @(nth cm-list i)
+                                                    @(nth prev-cm-list (+ i 1))
+                                                    @(nth cm-list (+ i 1))
+                                                    (nth flush-lists (/ i 2)))))))]
+    (reporting/report-csv concerns-set log-filename true)
+    (reporting/report-csv (set/difference (reduce set/union flush-lists) concerns-set) log-filename false)))
+  
 (defn new-time-period?
   "Checks if still in the same time period"
   [t]
-  (not (= t @time-period)))
+  (>= (- t @time-period) time-interval))
 
 (defn increase-increment
   "If not in the same time period, handle switch to new time period"
   ; check for concerns and output to file
   []
-  (reporting/report
-   (apply set/union (for [i (range (count cm-list))]
-                      (alg/get-concerns @(nth prev-cm-list i) @(nth cm-list i) @(nth seen-list i))))
-   (str "./out/flagged" @time-period ".json"))
-
   ; increment the time-period
-  (swap! time-period inc)
+  (swap! time-period + time-interval)
 
-  ; dampen and update history and create new current sketches
-  (pmap
-   (fn [i] (swap! (get i prev-cm-list) (comp (fn [x] (count-min/merge x @(get i cm-list))) alg/count-min-dampen)))
-   (range (count cm-list)))
-
-  (pmap
-   (fn [i] (swap! (get i cm-list) count-min/create :hash-bits num-hash-bits))
-   (range (count cm-list)))
-
-  (pmap
-   (fn [i] (swap! (get i seen-list) empty))
-   (range (count cm-list)))
-  )
+  ; dampen and update history and create new current sketches  
+  (doseq [i (range (count cm-list))] (swap! (nth prev-cm-list i) (comp (fn [x] (count-min/merge x @(nth cm-list i))) alg/count-min-dampen)))
+  (doseq [i (range (count cm-list))] (swap! (nth cm-list i) (fn [x] (count-min/create :hash-bits num-hash-bits)))))
 
 (defn parse-line 
   "read in a line from the CSV file and parse it into a map
@@ -120,6 +113,7 @@
   "Main point of entry, want to read each line of the file
    parse the line, and then update our state/counters"
   []
+  (reporting/start-report-csv log-filename)
   (with-open [rdr (clojure.java.io/reader "./data/paysim_log_no_header.csv")]
     (doseq [line (line-seq rdr)]
       (let [edge-map (parse-line line)
@@ -130,11 +124,11 @@
                       "CASH_OUT" 6
                       "PAYMENT" 8)
             index-node (inc index-edge)]
-        (while (new-time-period? (:timePeriod edge-map))
+        (do (while (new-time-period? (:timePeriod edge-map))
               (increase-increment))
-        (update-counters
-         (get cm-list index-edge)
-         (get cm-list index-node)
-         (get seen-list index-edge)
-         (get seen-list index-node)
-         edge-map)))))
+            (update-counters
+             (nth cm-list index-edge)
+             (nth cm-list index-node)
+             (nth seen-list (int (/ index-edge 2)))
+             edge-map)
+            (flush-concerns))))))

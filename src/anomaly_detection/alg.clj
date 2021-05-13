@@ -2,6 +2,7 @@
   "Contains all of the internal algorithms needed to manage detection algorithms"
   (:gen-class)
   (:require [ubergraph.core :as uber]
+            [clojure.set :as set]
     (bigml.sketchy [murmur :as murmur]
                    [count-min :as count-min])))
 
@@ -53,6 +54,12 @@
            :else
            (recur new_graph new_queue new_changes)))))
 
+(defn limit-edge 
+  "Take an edge map and return an edge-map with only the to and from nodes"
+  [value]
+  (if (map? value) (select-keys value '[:idFrom :idTo])
+    value))
+
 (defn- hash-offsets 
   "From Sketchy library - copied here since, not public"
   [value hashers hash-bits]
@@ -60,7 +67,7 @@
         doffset (unchecked-dec offset)]
     (loop [i 0
            offsets []]
-      (if (= i hashers)
+      (if (= i hashers) 
         offsets
         (recur (inc i)
                (conj offsets (+ (bit-and (murmur/hash value i) doffset)
@@ -90,10 +97,11 @@
   "Given a count-min structure, value to check, and return metric in map
    (test previous-count-min count-min value) returns map"
   [prev-cm cm value]
-  (let [expected (count-min/estimate-count prev-cm value)
-        observed (count-min/estimate-count cm value)
-        metric (* (/ (- observed expected) (+ observed expected))
-                 (Math/log (/ observed (max 1 expected))))]
+  (let [expected (count-min/estimate-count prev-cm (limit-edge value))
+        observed (count-min/estimate-count cm (limit-edge value))
+        metric (if (= (+ observed expected) 0) 0
+                   (* (/ (- observed expected) (+ observed expected))
+                      (Math/log (/ observed (max 1 expected)))))]
     (assoc {}
            :item value
            :metric metric)))
@@ -102,8 +110,8 @@
   "Given a count-min structure, value to check, and return metric in map
    (test previous-count-min count-min value) returns map"
   [prev-cm cm value]
-  (let [expected (count-min/estimate-count prev-cm value)
-        observed (count-min/estimate-count cm value)
+  (let [expected (count-min/estimate-count prev-cm (limit-edge value))
+        observed (count-min/estimate-count cm (limit-edge value))
         metric (/ (Math/pow (- observed expected) 2) (max 1 expected))]
         (assoc {} 
                :item value 
@@ -111,20 +119,25 @@
 
 (defn concern?
   "Given a map of the metric and value, return if it is a flag
-   (concern? metric value) threshold = 0.05
+   (concern? metric value) threshold = 0.02
    (concern? metric value threshold) returns boolean"
   ([value]
-   (concern? value 0.05))
+   (concern? value 0.02))
   ([value threshold]
    (> (:metric value) threshold)))
 
 (defn get-concerns
   "Given a previous count-min sketch, current one, and a collection of insertions, 
    return a report as a map with the collection that is to be reported, the threshold value"
-   ([prev-cm cm values]
-    (get-concerns prev-cm cm values 0.05))
-   ([prev-cm cm values threshold]
-    (->> values
-         (map (fn [x] (psi-test prev-cm cm x)))
-         (filter concern?)
-         (set))))
+   ([prev-cm-edge cm-edge prev-cm-node cm-node values]
+    (get-concerns prev-cm-edge cm-edge prev-cm-node cm-node values 0.02))
+   ([prev-cm-edge cm-edge prev-cm-node cm-node values threshold]
+    (let [edge-concerns (->> values
+                             (map (fn [x] (psi-test prev-cm-edge cm-edge x)))
+                             (filter concern?)
+                             (set))
+          node-concerns (->> values
+                             (map (fn [x] (psi-test prev-cm-node cm-node x)))
+                             (filter concern?)
+                             (set))]
+      (map :item (set/union edge-concerns node-concerns)))))
