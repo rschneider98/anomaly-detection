@@ -69,16 +69,16 @@
 
 (defn flush-concerns  
   []
-  (let [flush-lists (doall (for [i (range (count seen-list))] (first (swap-vals! (nth seen-list i) empty))))
-        concerns-set (do (apply set/union (doall (for [i (map (fn [x] (* 2 x)) (range (/ (count cm-list) 2)))]
+  (let [flush-lists (into-array (for [i (range (count seen-list))] (first (swap-vals! (nth seen-list i) empty))))
+        concerns-set (set (into-array (apply set/union (doall (for [i (map (fn [x] (* 2 x)) (range (/ (count cm-list) 2)))]
                                                    (alg/get-concerns
                                                     @(nth prev-cm-list i)
                                                     @(nth cm-list i)
                                                     @(nth prev-cm-list (+ i 1))
                                                     @(nth cm-list (+ i 1))
-                                                    (nth flush-lists (/ i 2)))))))]
+                                                    (nth flush-lists (/ i 2))))))))]
     (reporting/report-csv concerns-set log-filename true)
-    (reporting/report-csv (set/difference (reduce set/union flush-lists) concerns-set) log-filename false)))
+    (reporting/report-csv (set/difference (into-array (reduce set/union flush-lists)) concerns-set) log-filename false)))
   
 (defn new-time-period?
   "Checks if still in the same time period"

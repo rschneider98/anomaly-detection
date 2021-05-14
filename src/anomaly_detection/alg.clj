@@ -122,7 +122,7 @@
    (concern? metric value) threshold = 0.02
    (concern? metric value threshold) returns boolean"
   ([value]
-   (concern? value 0.02))
+   (concern? value 0.04))
   ([value threshold]
    (> (:metric value) threshold)))
 
@@ -130,7 +130,7 @@
   "Given a previous count-min sketch, current one, and a collection of insertions, 
    return a report as a map with the collection that is to be reported, the threshold value"
    ([prev-cm-edge cm-edge prev-cm-node cm-node values]
-    (get-concerns prev-cm-edge cm-edge prev-cm-node cm-node values 0.02))
+    (get-concerns prev-cm-edge cm-edge prev-cm-node cm-node values 0.04))
    ([prev-cm-edge cm-edge prev-cm-node cm-node values threshold]
     (let [edge-concerns (->> values
                              (map (fn [x] (psi-test prev-cm-edge cm-edge x)))
